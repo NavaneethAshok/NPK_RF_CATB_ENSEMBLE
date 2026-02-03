@@ -1,0 +1,65 @@
+!pip install -q kagglehub[pandas-datasets] catboost joblib scikit-learn
+
+import kagglehub
+from kagglehub import KaggleDatasetAdapter
+import pandas as pd
+import numpy as np
+import joblib
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from catboost import CatBoostClassifier
+
+file_path = "Crop_recommendation.csv"
+
+df = kagglehub.load_dataset(
+    KaggleDatasetAdapter.PANDAS,
+    "atharvaingle/crop-recommendation-dataset",
+    file_path,
+)
+
+X = df.drop("label", axis=1)
+y = df["label"]
+
+le = LabelEncoder()
+y_enc = le.fit_transform(y)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y_enc, test_size=0.2, random_state=42, stratify=y_enc
+)
+
+rf = RandomForestClassifier(n_estimators=400, random_state=42)
+rf.fit(X_train, y_train)
+rf_pred = rf.predict(X_test)
+print("RandomForest Accuracy:", accuracy_score(y_test, rf_pred))
+
+cb = CatBoostClassifier(
+    iterations=800,
+    learning_rate=0.1,
+    depth=6,
+    loss_function="MultiClass",
+    verbose=0,
+    random_state=42
+)
+cb.fit(X_train, y_train)
+cb_pred = cb.predict(X_test).astype(int).flatten()
+print("CatBoost Accuracy:", accuracy_score(y_test, cb_pred))
+
+ensemble = VotingClassifier(
+    estimators=[("rf", rf), ("cb", cb)],
+    voting="soft"
+)
+ensemble.fit(X_train, y_train)
+ens_pred = ensemble.predict(X_test)
+
+print("Ensemble Accuracy:", accuracy_score(y_test, ens_pred))
+print(classification_report(y_test, ens_pred))
+
+joblib.dump(ensemble, "ensemble_crop_model.pkl")
+joblib.dump(le, "label_encoder.pkl")
+
+from google.colab import files
+files.download("ensemble_crop_model.pkl")
+files.download("label_encoder.pkl")
